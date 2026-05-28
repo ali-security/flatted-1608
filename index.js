@@ -26,35 +26,29 @@ self.Flatted = (function (exports) {
     return typeof(value) === primitive ? new Primitive(value) : value;
   };
 
-  var revive = function revive(input, parsed, output, $) {
-    var lazy = [];
+  var resolver = function resolver(input, lazy, parsed, $) {
+    return function (output) {
+      for (var ke = keys(output), length = ke.length, y = 0; y < length; y++) {
+        var k = ke[y];
+        var value = output[k];
 
-    for (var ke = keys(output), length = ke.length, y = 0; y < length; y++) {
-      var k = ke[y];
-      var value = output[k];
+        if (value instanceof Primitive) {
+          var tmp = input[+value];
 
-      if (value instanceof Primitive) {
-        var tmp = input[value];
+          if (typeof(tmp) === object && !parsed.has(tmp)) {
+            parsed.add(tmp);
+            output[k] = ignore;
+            lazy.push({
+              o: output,
+              k: k,
+              r: tmp
+            });
+          } else output[k] = $.call(output, k, tmp);
+        } else if (output[k] !== ignore) output[k] = $.call(output, k, value);
+      }
 
-        if (typeof(tmp) === object && !parsed.has(tmp)) {
-          parsed.add(tmp);
-          output[k] = ignore;
-          lazy.push({
-            k: k,
-            a: [input, parsed, tmp, $]
-          });
-        } else output[k] = $.call(output, k, tmp);
-      } else if (output[k] !== ignore) output[k] = $.call(output, k, value);
-    }
-
-    for (var _length = lazy.length, i = 0; i < _length; i++) {
-      var _lazy$i = lazy[i],
-          _k = _lazy$i.k,
-          a = _lazy$i.a;
-      output[_k] = $.call(output, _k, revive.apply(null, a));
-    }
-
-    return output;
+      return output;
+    };
   };
 
   var set = function set(known, input, value) {
@@ -65,12 +59,25 @@ self.Flatted = (function (exports) {
 
   var parse = function parse(text, reviver) {
     var input = $parse(text, Primitives).map(primitives);
-    var value = input[0];
     var $ = reviver || noop;
-    var tmp = typeof(value) === object && value ? revive(input, new Set(), value, $) : value;
+
+    var value = input[0];
+
+    if (typeof(value) === object && value) {
+      var lazy = [];
+      var revive = resolver(input, lazy, new Set(), $);
+      value = revive(value);
+
+      var i = 0;
+      while (i < lazy.length) {
+        var entry = lazy[i++];
+        entry.o[entry.k] = $.call(entry.o, entry.k, revive(entry.r));
+      }
+    }
+
     return $.call({
-      '': tmp
-    }, '', tmp);
+      '': value
+    }, '', value);
   };
   var stringify = function stringify(value, replacer, space) {
     var $ = replacer && typeof(replacer) === object ? function (k, v) {
